@@ -1,0 +1,82 @@
+<!doctype html>
+<!--
+  Knock page. Published as index.html on GitHub Pages
+  (github.com/remitoshniwal/spongebox). It holds no address and no secret: you type the
+  server address and the knock password; the password is hashed here (PBKDF2-SHA256,
+  1,000,000 rounds, in the browser) and never sent anywhere. Chunks 1-7 go out as background requests, chunk 8
+  as a normal page visit, so the server's login cookie sticks.
+  Add #<address> to the page URL to fill the address in (the part after # is never sent
+  to GitHub or the server).
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>Knock</title>
+<style>
+  :root { --bg: #f6f6f4; --card: #fff; --text: #1d1d1b; --muted: #6b6b66; --line: #dcdcd6; --accent: #e0a526; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #161615; --card: #20201e; --text: #ececea; --muted: #9a9a94; --line: #34342f; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 16px;
+         background: var(--bg); color: var(--text); font: 16px/1.4 system-ui, -apple-system, sans-serif; }
+  form { width: 100%; max-width: 340px; background: var(--card); border: 1px solid var(--line);
+         border-radius: 14px; padding: 24px; display: grid; gap: 14px; }
+  h1 { margin: 0; font-size: 20px; }
+  label { display: grid; gap: 6px; font-size: 14px; color: var(--muted); }
+  input { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line);
+          border-radius: 8px; padding: 10px 12px; width: 100%; }
+  button { font: inherit; font-weight: 600; border: 0; border-radius: 8px; padding: 11px;
+           background: var(--accent); color: #1d1d1b; cursor: pointer; }
+  button:disabled { opacity: .6; cursor: default; }
+  #status { min-height: 1.4em; margin: 0; font-size: 14px; color: var(--muted); }
+</style>
+</head>
+<body>
+<form id="f" autocomplete="off">
+  <h1>Knock</h1>
+  <label>Server address<input id="addr" placeholder="1.2.3.4" required inputmode="url" autocapitalize="off" spellcheck="false"></label>
+  <label>Password<input id="pw" type="password" required></label>
+  <button id="go">Open</button>
+  <p id="status"></p>
+</form>
+<script>
+  // Must match SALT and ROUNDS on the server (set-password.sh). Not secret.
+  const SALT = "d9f15908645476b47c7e31d8282dc671", ROUNDS = 1000000;
+
+  // PBKDF2-SHA256 of the password: 64 hex characters, deliberately slow (about a second).
+  async function knockHash(password) {
+    const enc = new TextEncoder();
+    const key = await crypto.subtle.importKey("raw", enc.encode(password), "PBKDF2", false, ["deriveBits"]);
+    const bits = await crypto.subtle.deriveBits({ name: "PBKDF2", hash: "SHA-256", salt: enc.encode(SALT), iterations: ROUNDS }, key, 256);
+    return Array.from(new Uint8Array(bits), b => b.toString(16).padStart(2, "0")).join("");
+  }
+
+  const $ = id => document.getElementById(id);
+  $("addr").value = decodeURIComponent(location.hash.slice(1));
+  ($("addr").value ? $("pw") : $("addr")).focus();
+
+  $("f").addEventListener("submit", async e => {
+    e.preventDefault();
+    const host = $("addr").value.trim().replace(/^https?:\/\//, "").replace(/\/.*$/, "");
+    $("go").disabled = true;
+    $("status").textContent = "Knocking…";
+    const hex = await knockHash($("pw").value);
+    const chunks = hex.match(/.{8}/g);
+    $("pw").value = "";
+    try {
+      for (const c of chunks.slice(0, 7)) {
+        await fetch(`https://${host}/${c}`, { mode: "no-cors", cache: "no-store", credentials: "omit", referrerPolicy: "no-referrer" });
+      }
+    } catch {
+      $("status").textContent = "Can't reach that address.";
+      $("go").disabled = false;
+      return;
+    }
+    location.href = `https://${host}/${chunks[7]}`;
+  });
+</script>
+</body>
+</html>
